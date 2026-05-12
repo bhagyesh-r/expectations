@@ -14,15 +14,15 @@ Then install `aws-core` from `/plugins`. The toolkit provides current AWS guidan
 
 ## Setup Status
 
-| Step | Status |
-|------|--------|
-| CI/CD pipeline (`.github/workflows/ci-cd.yml`) | ✅ Done |
-| GitHub secrets (`EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY`) | ✅ Done |
-| Docker installed on EC2 | ✅ Done |
-| Docker Compose plugin on EC2 | ⏳ Pending |
-| `/opt/expectations/` directory on EC2 | ⏳ Pending |
-| `/opt/expectations/.env` on EC2 | ⏳ Pending |
-| GHCR login on EC2 (if repo is private) | ⏳ Pending |
+| Step                                                   | Status     |
+| ------------------------------------------------------ | ---------- |
+| CI/CD pipeline (`.github/workflows/ci-cd.yml`)         | ✅ Done    |
+| GitHub secrets (`EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY`) | ✅ Done    |
+| Docker installed on EC2                                | ✅ Done    |
+| Docker Compose plugin on EC2                           | ⏳ Pending |
+| `/opt/expectations/` directory on EC2                  | ⏳ Pending |
+| `/opt/expectations/.env` on EC2                        | ⏳ Pending |
+| GHCR login on EC2 (if repo is private)                 | ⏳ Pending |
 
 ## GitHub Secrets
 
