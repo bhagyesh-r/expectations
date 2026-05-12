@@ -1,0 +1,148 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum DailyStatus {
+  DONE
+  NOT_TODAY
+  NEEDS_DISCUSSION
+  SKIPPED
+}
+
+enum BadgeType {
+  THREE_DAY_CHECK_IN_STREAK
+  APPRECIATION_STAR
+  TEAMWORK_MOMENT
+  CONSISTENCY_COUPLE
+  KIND_NOTE_SENT
+}
+
+model User {
+  id              String         @id @default(cuid())
+  name            String
+  email           String         @unique
+  passwordHash    String
+  profileImageUrl String?
+  coupleSpaceId   String?
+  coupleSpace     CoupleSpace?   @relation(fields: [coupleSpaceId], references: [id])
+  createdSets      ExpectationSet[] @relation("ExpectationSetCreator")
+  createdExpectations Expectation[] @relation("ExpectationCreator")
+  expectedFromExpectations Expectation[] @relation("ExpectationExpectedFrom")
+  statusesMarked DailyExpectationStatus[] @relation("StatusMarker")
+  statusesExpectedFrom DailyExpectationStatus[] @relation("StatusExpectedFrom")
+  appreciationNotes AppreciationNote[]
+  badges          Badge[]
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+}
+
+model CoupleSpace {
+  id                String                   @id @default(cuid())
+  name              String
+  coupleCode        String                   @unique
+  members           User[]
+  expectationSets   ExpectationSet[]
+  expectations      Expectation[]
+  dailyStatuses     DailyExpectationStatus[]
+  appreciationNotes AppreciationNote[]
+  badges            Badge[]
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+}
+
+model ExpectationSet {
+  id                String                   @id @default(cuid())
+  coupleSpaceId     String
+  coupleSpace       CoupleSpace              @relation(fields: [coupleSpaceId], references: [id], onDelete: Cascade)
+  name              String
+  startDate         DateTime
+  endDate           DateTime
+  createdByUserId   String
+  createdBy         User                     @relation("ExpectationSetCreator", fields: [createdByUserId], references: [id])
+  expectations      Expectation[]
+  dailyStatuses     DailyExpectationStatus[]
+  appreciationNotes AppreciationNote[]
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+
+  @@index([coupleSpaceId, startDate, endDate])
+}
+
+model Expectation {
+  id                 String                   @id @default(cuid())
+  expectationSetId   String
+  expectationSet     ExpectationSet           @relation(fields: [expectationSetId], references: [id], onDelete: Cascade)
+  coupleSpaceId      String
+  coupleSpace        CoupleSpace              @relation(fields: [coupleSpaceId], references: [id], onDelete: Cascade)
+  createdByUserId    String
+  createdBy          User                     @relation("ExpectationCreator", fields: [createdByUserId], references: [id])
+  expectedFromUserId String
+  expectedFrom       User                     @relation("ExpectationExpectedFrom", fields: [expectedFromUserId], references: [id])
+  text               String
+  isActive           Boolean                  @default(true)
+  dailyStatuses      DailyExpectationStatus[]
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+
+  @@index([expectationSetId, createdByUserId])
+  @@index([coupleSpaceId, expectedFromUserId])
+}
+
+model DailyExpectationStatus {
+  id                 String         @id @default(cuid())
+  expectationId      String
+  expectation        Expectation    @relation(fields: [expectationId], references: [id], onDelete: Cascade)
+  expectationSetId   String
+  expectationSet     ExpectationSet @relation(fields: [expectationSetId], references: [id], onDelete: Cascade)
+  coupleSpaceId      String
+  coupleSpace        CoupleSpace    @relation(fields: [coupleSpaceId], references: [id], onDelete: Cascade)
+  markedByUserId     String
+  markedBy           User           @relation("StatusMarker", fields: [markedByUserId], references: [id])
+  expectedFromUserId String
+  expectedFrom       User           @relation("StatusExpectedFrom", fields: [expectedFromUserId], references: [id])
+  date               DateTime
+  status             DailyStatus
+  note               String?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  @@unique([expectationId, markedByUserId, date])
+  @@index([expectationSetId, date])
+  @@index([coupleSpaceId, date])
+}
+
+model AppreciationNote {
+  id               String         @id @default(cuid())
+  coupleSpaceId    String
+  coupleSpace      CoupleSpace    @relation(fields: [coupleSpaceId], references: [id], onDelete: Cascade)
+  expectationSetId String
+  expectationSet   ExpectationSet @relation(fields: [expectationSetId], references: [id], onDelete: Cascade)
+  createdByUserId  String
+  createdBy        User           @relation(fields: [createdByUserId], references: [id])
+  date             DateTime
+  note             String
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@unique([expectationSetId, createdByUserId, date])
+  @@index([coupleSpaceId, date])
+}
+
+model Badge {
+  id            String      @id @default(cuid())
+  coupleSpaceId String
+  coupleSpace   CoupleSpace @relation(fields: [coupleSpaceId], references: [id], onDelete: Cascade)
+  userId        String?
+  user          User?       @relation(fields: [userId], references: [id])
+  badgeType     BadgeType
+  title         String
+  description   String
+  earnedAt      DateTime    @default(now())
+
+  @@unique([coupleSpaceId, userId, badgeType])
+}

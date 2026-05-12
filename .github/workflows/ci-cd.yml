@@ -1,0 +1,179 @@
+name: CI/CD
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+env:
+  REGISTRY: ghcr.io
+  API_IMAGE_NAME: ${{ github.repository }}/api
+  WEB_IMAGE_NAME: ${{ github.repository }}/web
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: expectations
+          POSTGRES_PASSWORD: expectations
+          POSTGRES_DB: expectations_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U expectations -d expectations_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://expectations:expectations@localhost:5432/expectations_test?schema=public
+      JWT_SECRET: ci-jwt-secret-change-for-runtime
+      VITE_API_URL: http://localhost:4000/api
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run prisma:generate -w apps/api
+
+      - name: Validate Prisma schema
+        run: npx prisma validate --schema apps/api/prisma/schema.prisma
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Check formatting
+        run: npm run format:check
+
+      - name: Build
+        run: npm run build
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Test
+        run: npm test
+
+  build-and-push:
+    name: Build And Push Images
+    runs-on: ubuntu-latest
+    needs: verify
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata for API
+        id: meta-api
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.API_IMAGE_NAME }}
+          tags: |
+            type=sha
+            type=raw,value=latest
+
+      - name: Build and push API
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          target: production
+          push: true
+          tags: ${{ steps.meta-api.outputs.tags }}
+          labels: ${{ steps.meta-api.outputs.labels }}
+
+      - name: Extract Docker metadata for Web
+        id: meta-web
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.WEB_IMAGE_NAME }}
+          tags: |
+            type=sha
+            type=raw,value=latest
+
+      - name: Build and push Web
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/web/Dockerfile
+          target: production
+          push: true
+          tags: ${{ steps.meta-web.outputs.tags }}
+          labels: ${{ steps.meta-web.outputs.labels }}
+
+  deploy:
+    name: Deploy To EC2
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Copy compose file to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "docker-compose.prod.yml,scripts/deploy-ec2.sh"
+          target: "/tmp/expectations-deploy"
+
+      - name: Deploy on EC2
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          API_IMAGE: ghcr.io/${{ env.API_IMAGE_NAME }}:latest
+          WEB_IMAGE: ghcr.io/${{ env.WEB_IMAGE_NAME }}:latest
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          envs: API_IMAGE,WEB_IMAGE
+          script: |
+            set -euo pipefail
+            sudo mkdir -p /opt/expectations/scripts
+            sudo cp /tmp/expectations-deploy/docker-compose.prod.yml /opt/expectations/docker-compose.prod.yml
+            sudo cp /tmp/expectations-deploy/scripts/deploy-ec2.sh /opt/expectations/scripts/deploy-ec2.sh
+            sudo chmod +x /opt/expectations/scripts/deploy-ec2.sh
+            if [ ! -f /opt/expectations/.env ]; then
+              sudo tee /opt/expectations/.env >/dev/null <<EOF
+            POSTGRES_USER=expectations
+            POSTGRES_PASSWORD=replace-me
+            POSTGRES_DB=expectations
+            DATABASE_URL=postgresql://expectations:replace-me@postgres:5432/expectations?schema=public
+            JWT_SECRET=replace-me-with-a-long-random-value
+            CORS_ORIGIN=http://${{ secrets.EC2_HOST }}
+            API_PORT=4000
+            WEB_PORT=80
+            API_IMAGE=${API_IMAGE}
+            WEB_IMAGE=${WEB_IMAGE}
+            EOF
+              echo "Created /opt/expectations/.env template. Update secrets on EC2, then rerun this workflow."
+              exit 1
+            fi
+            sudo sed -i.bak "s#^API_IMAGE=.*#API_IMAGE=${API_IMAGE}#" /opt/expectations/.env
+            sudo sed -i.bak "s#^WEB_IMAGE=.*#WEB_IMAGE=${WEB_IMAGE}#" /opt/expectations/.env
+            sudo APP_DIR=/opt/expectations /opt/expectations/scripts/deploy-ec2.sh
