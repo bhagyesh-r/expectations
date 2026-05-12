@@ -12,28 +12,29 @@ codex plugin marketplace add aws/agent-toolkit-for-aws
 
 Then install `aws-core` from `/plugins`. The toolkit provides current AWS guidance, documentation access, and MCP-backed AWS operations. Reference: https://github.com/aws/agent-toolkit-for-aws
 
+## Setup Status
+
+| Step | Status |
+|------|--------|
+| CI/CD pipeline (`.github/workflows/ci-cd.yml`) | ✅ Done |
+| GitHub secrets (`EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY`) | ✅ Done |
+| Docker installed on EC2 | ✅ Done |
+| Docker Compose plugin on EC2 | ⏳ Pending |
+| `/opt/expectations/` directory on EC2 | ⏳ Pending |
+| `/opt/expectations/.env` on EC2 | ⏳ Pending |
+| GHCR login on EC2 (if repo is private) | ⏳ Pending |
+
 ## GitHub Secrets
 
-Add these repository secrets:
+Already configured with these values:
 
-- `EC2_HOST`: public DNS name or IP of the EC2 instance
-- `EC2_USER`: SSH user, for example `ubuntu` or `ec2-user`
-- `EC2_SSH_KEY`: private key with SSH access to the EC2 instance
+- `EC2_HOST`: `52.66.189.120`
+- `EC2_USER`: `ec2-user`
+- `EC2_SSH_KEY`: contents of `/Users/bhagyesh-r/Documents/credentials/ai-demo-ec2/local.pem`
 
 ## Create And Push The GitHub Repo
 
-From this project directory:
-
-```bash
-git init
-git add .
-git commit -m "feat: scaffold expectations mvp"
-git branch -M main
-git remote add origin git@github.com:<your-user-or-org>/<your-repo>.git
-git push -u origin main
-```
-
-Create the empty GitHub repository first in the GitHub UI. Do not initialize it with a README because this project already has one.
+Already done. Repository is at `git@github.com:bhagyesh-r/expectations.git`.
 
 ## GitHub Repository Settings
 
@@ -93,16 +94,20 @@ Keep this private. Do not commit it.
 SSH into the EC2 instance:
 
 ```bash
-ssh -i /path/to/key.pem ubuntu@<EC2_HOST>
+ssh -i /Users/bhagyesh-r/Documents/credentials/ai-demo-ec2/local.pem ec2-user@52.66.189.120
 ```
 
-Install Docker Compose plugin if it is not already installed:
+Docker is already installed from a previous project. Check if the Docker Compose plugin is available:
 
 ```bash
 docker compose version
 ```
 
-If that command fails, install Docker Compose using the Docker docs for your AMI.
+If that command fails, install the Docker Compose plugin on Amazon Linux 2023:
+
+```bash
+sudo dnf install -y docker-compose-plugin
+```
 
 Create the app directory:
 
@@ -120,19 +125,16 @@ POSTGRES_PASSWORD=replace-with-a-strong-db-password
 POSTGRES_DB=expectations
 DATABASE_URL=postgresql://expectations:replace-with-a-strong-db-password@postgres:5432/expectations?schema=public
 JWT_SECRET=replace-with-a-long-random-secret-at-least-32-chars
-CORS_ORIGIN=http://<EC2_HOST>
+CORS_ORIGIN=http://52.66.189.120
 API_PORT=4000
 WEB_PORT=80
-API_IMAGE=ghcr.io/<your-user-or-org>/<your-repo>/api:latest
-WEB_IMAGE=ghcr.io/<your-user-or-org>/<your-repo>/web:latest
+API_IMAGE=ghcr.io/bhagyesh-r/expectations/api:latest
+WEB_IMAGE=ghcr.io/bhagyesh-r/expectations/web:latest
 EOF
 ```
 
 Replace:
 
-- `<EC2_HOST>` with the EC2 public IP or DNS name.
-- `<your-user-or-org>` with your GitHub owner.
-- `<your-repo>` with your GitHub repository name.
 - both database password values with the same strong password.
 - `JWT_SECRET` with a long random value.
 
@@ -152,10 +154,10 @@ Security group inbound rules should allow:
 
 The workflow pushes images to GitHub Container Registry using `GITHUB_TOKEN`. On the EC2 instance, Docker may need to authenticate before it can pull private images.
 
-If your repository or packages are private, create a GitHub personal access token with package read permission, then run this on EC2:
+If your repository or packages are private, create a GitHub personal access token with `read:packages` permission at **GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic)**, then run this on EC2:
 
 ```bash
-echo "<github-token>" | docker login ghcr.io -u <github-username> --password-stdin
+echo "<github-personal-access-token>" | docker login ghcr.io -u bhagyesh-r --password-stdin
 ```
 
 If the repository and packages are public, this step may not be required.
